@@ -12,12 +12,8 @@ output="name: tp0
 
 # Shared/Commons
 x-client-base: &client-base
-  container_name: client$i
   image: client:latest
   entrypoint: /client
-  environment:
-    - CLI_ID=1
-    - CLI_LOG_LEVEL=DEBUG
   networks:
     - testing_net
   depends_on:
@@ -30,13 +26,14 @@ services:
     entrypoint: python3 /main.py
     environment:
       - PYTHONUNBUFFERED=1
-      - LOGGING_LEVEL=DEBUG
     networks:
       - testing_net
 
 $(for i in $(seq 1 $clients); do echo "\
   client$i:
     container_name: client$i
+    environment:
+      - CLI_ID=$i
     <<: *client-base
   "
   done

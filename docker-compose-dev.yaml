@@ -2,12 +2,8 @@ name: tp0
 
 # Shared/Commons
 x-client-base: &client-base
-  container_name: client
   image: client:latest
   entrypoint: /client
-  environment:
-    - CLI_ID=1
-    - CLI_LOG_LEVEL=DEBUG
   networks:
     - testing_net
   depends_on:
@@ -20,12 +16,13 @@ services:
     entrypoint: python3 /main.py
     environment:
       - PYTHONUNBUFFERED=1
-      - LOGGING_LEVEL=DEBUG
     networks:
       - testing_net
 
   client1:
     container_name: client1
+    environment:
+      - CLI_ID=1
     <<: *client-base
   
 networks:
