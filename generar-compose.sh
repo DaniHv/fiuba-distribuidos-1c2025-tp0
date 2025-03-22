@@ -18,6 +18,8 @@ x-client-base: &client-base
     - testing_net
   depends_on:
     - server
+  volumes:
+    - ./client/config.yaml:/config.yaml
 
 services:
   server:
@@ -28,6 +30,8 @@ services:
       - PYTHONUNBUFFERED=1
     networks:
       - testing_net
+    volumes:
+      - ./server/config.ini:/config.ini
 
 $(for i in $(seq 1 $clients); do echo "\
   client$i:
