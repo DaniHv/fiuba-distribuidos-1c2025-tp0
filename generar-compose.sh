@@ -2,8 +2,8 @@
 output_path=$1
 clients=$2
 
-if ! [[ $clients =~ ^[0-9]+$ && $clients -ge 1 ]] ; then
-  echo "Invalid usage: clients is expected to be an int greater than 0. Expected usage: $0 {output} {clients}." >&2; exit 1
+if ! [[ $clients =~ ^[0-9]+$ && $clients -ge 0 ]] ; then
+  echo "Invalid usage: clients is expected to be an int greater or equal than 0. Expected usage: $0 {output} {clients}." >&2; exit 1
 fi
 
 echo "Generating docker-compose file for $clients clients"
