@@ -111,5 +111,6 @@ func main() {
 	}
 
 	client := common.NewClient(clientConfig)
+	client.SetupGracefulShutdown()
 	client.StartClientLoop()
 }

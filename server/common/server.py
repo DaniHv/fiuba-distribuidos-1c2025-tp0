@@ -1,6 +1,8 @@
 import socket
 import logging
-
+import signal
+import select
+import os
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -8,6 +10,16 @@ class Server:
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
+        self._server_socket.setblocking(False)
+
+        # Initialize graceful shutdown
+        self.shutdown_r, self.shutdown_w = os.pipe()
+        signal.signal(signal.SIGTERM, self.__shutdown_signal)
+
+    def __shutdown_signal(self, signum, frame):
+        logging.info("action: graceful_shutdown | result: in_progress")
+
+        os.write(self.shutdown_w, b'1')
 
     def run(self):
         """
@@ -18,11 +30,19 @@ class Server:
         finishes, servers starts to accept new connections again
         """
 
-        # TODO: Modify this program to handle signal to graceful shutdown
-        # the server
         while True:
-            client_sock = self.__accept_new_connection()
-            self.__handle_client_connection(client_sock)
+            readables, _, _ = select.select([self._server_socket, self.shutdown_r], [], [])
+            
+            for r in readables:                
+                if r == self._server_socket:
+                    client_sock = self.__accept_new_connection()
+                    self.__handle_client_connection(client_sock)
+
+                elif r == self.shutdown_r:
+                    self._server_socket.close()
+                    logging.info("action: graceful_shutdown | result: success")
+                    return
+
 
     def __handle_client_connection(self, client_sock):
         """
@@ -38,7 +58,7 @@ class Server:
             logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
             # TODO: Modify the send to avoid short-writes
             client_sock.send("{}\n".format(msg).encode('utf-8'))
-        except OSError as e:
+        except Exception as e:
             logging.error("action: receive_message | result: fail | error: {e}")
         finally:
             client_sock.close()
