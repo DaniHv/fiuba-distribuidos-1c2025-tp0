@@ -1,0 +1,118 @@
+import socket
+
+class MBPMessage:
+    """
+    MBPMessage (Message-based Protocol Message) is the data representation of MBPSocket message
+    containing an action and data.
+
+    The action is a string (utf8) representing the action to be taken by the counterpart,
+    cannot contain spaces or newlines, for example: EXECUTE_SOMETHING. Can be thought as
+    the combination of VERB + URL in an HTTP Request.
+
+    The data is a bytes stream containing the data to be sent or received. MBPSocket doesn't
+    enforce any restrictions on the data, it could be a plain text, json or any
+    other binary data such as protobufs. Can be though as the body of an HTTP Request.
+    """
+    def __init__(self, action: 'str', data: 'bytes'):
+        if ' ' in action or '\n' in action:
+            raise ValueError("Action cannot contain spaces or newlines")
+
+        self.action = action
+        self.data = data
+
+    def to_bytes(self):
+        return bytes(f"{self.action} ", 'utf-8') + self.data
+    
+    def from_bytes(data: 'bytes') -> 'MBPMessage':
+        action, data = data.split(b' ', 1)
+
+        return MBPMessage(action.decode('utf8'), data)
+
+class MBPSocket:
+    """
+    MBPSocket (Message-based Protocol Socket) is a TCP-Based, full-duplex and message-oriented protocol.
+
+    Messages received and sent are represented by MBPMessage objects,
+    containing an action and data, both strings.
+
+    Server socket accepts connections non-blocking. Child sockets sends and receives messages blocking.
+
+    Note: "connect" method is not implemented since it won't be required, since this will be used
+    as server-only.
+    """
+
+    listening = False
+
+    def __init__(self):
+        pass
+
+    def listen(self, port, listen_backlog):
+        """
+        Listen for incoming connections on a given port.
+        """
+
+        if self.listening:
+            raise Exception("Cannot listen in an already listening socket.")
+
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._socket.bind(('', port))
+        self._socket.listen(listen_backlog)
+        self._socket.setblocking(False)
+        self.listening = True
+
+    def accept(self) -> 'MBPSocket':
+        """"
+        Accept a new connection on a listening socket.
+        """
+
+        if not self.listening:
+            raise Exception("Cannot accept connections in a non listening socket.")
+        
+        c, addr = self._socket.accept()
+
+        client_socket = MBPSocket()
+        client_socket._socket = c
+
+        return client_socket, addr
+    
+    def send_message(self, message: 'MBPMessage'):
+        """
+        Receive a message (MBPMessage) to the connected socket.
+
+        Only available in non-listening sockets.
+        """
+
+        if self.listening:
+            raise Exception("Cannot send message in a listening socket")
+        
+        self._socket.send(message.to_bytes() + b'\n')
+
+    def receive_message(self) -> 'MBPMessage':
+        """
+        Receive a message (MBPMessage) from the connected socket.
+
+        Only available in non-listening sockets.
+        """
+
+        if self.listening:
+            raise Exception("Cannot receive message in a listening socket")
+
+        # Python readline is a buffered implementation, so reads using it
+        # prevents short reads.
+        serialized_message = self._socket.makefile('rb').readline()
+
+        if serialized_message[-1] != 10: # 10 is the byte value for \n
+            raise Exception("Unexpected EOF while reading message")
+
+        return MBPMessage.from_bytes(serialized_message[0:-1])
+
+    def getpeername(self):
+        return self._socket.getpeername()
+
+    def close(self):
+        self._socket.close()
+        self.listening = False
+
+    def fileno(self):
+        return self._socket.fileno()
+        

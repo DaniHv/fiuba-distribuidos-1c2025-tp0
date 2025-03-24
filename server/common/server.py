@@ -1,78 +1,66 @@
-import socket
 import logging
 import signal
 import select
 import os
+from common.protocol import MBPSocket, MBPMessage
 
 class Server:
     def __init__(self, port, listen_backlog):
         # Initialize server socket
-        self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._server_socket.bind(('', port))
-        self._server_socket.listen(listen_backlog)
-        self._server_socket.setblocking(False)
+        self._server_socket = MBPSocket()
+        self._server_socket.listen(port, listen_backlog)
 
         # Initialize graceful shutdown
         self.shutdown_r, self.shutdown_w = os.pipe()
         signal.signal(signal.SIGTERM, self.__shutdown_signal)
+        signal.signal(signal.SIGINT, self.__shutdown_signal)
 
     def __shutdown_signal(self, signum, frame):
-        logging.info("action: graceful_shutdown | result: in_progress")
+        logging.info("action: graceful_shutdown | result: in_progress | signal: %s", signum)
 
         os.write(self.shutdown_w, b'1')
 
     def run(self):
         """
-        Dummy Server loop
-
-        Server that accept a new connections and establishes a
-        communication with a client. After client with communucation
-        finishes, servers starts to accept new connections again
+        Start listening for connections until a shutdown is requested.
         """
 
         while True:
+            logging.info('action: accept_connections | result: in_progress')
+
+            # Wait for new connections or shutdown signal
             readables, _, _ = select.select([self._server_socket, self.shutdown_r], [], [])
             
             for r in readables:                
                 if r == self._server_socket:
-                    client_sock = self.__accept_new_connection()
+                    client_sock, addr = self._server_socket.accept()
+                    logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
+
                     self.__handle_client_connection(client_sock)
 
                 elif r == self.shutdown_r:
                     self._server_socket.close()
                     logging.info("action: graceful_shutdown | result: success")
+
                     return
 
+    def __handle_client_connection(self, client_sock: 'MBPSocket'):
+        addr = client_sock.getpeername()
+        message = None
 
-    def __handle_client_connection(self, client_sock):
-        """
-        Read message from a specific client socket and closes the socket
-
-        If a problem arises in the communication with the client, the
-        client socket will also be closed
-        """
         try:
-            # TODO: Modify the receive to avoid short-reads
-            msg = client_sock.recv(1024).rstrip().decode('utf-8')
-            addr = client_sock.getpeername()
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
-            # TODO: Modify the send to avoid short-writes
-            client_sock.send("{}\n".format(msg).encode('utf-8'))
+            message = client_sock.receive_message()
+
+            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {message.data.decode("utf-8")}')
         except Exception as e:
-            logging.error("action: receive_message | result: fail | error: {e}")
-        finally:
-            client_sock.close()
+            logging.error(f'action: receive_message | result: fail | error: {e}')
 
-    def __accept_new_connection(self):
-        """
-        Accept new connections
-
-        Function blocks until a connection to a client is made.
-        Then connection created is printed and returned
-        """
-
-        # Connection arrived
-        logging.info('action: accept_connections | result: in_progress')
-        c, addr = self._server_socket.accept()
-        logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
-        return c
+        if message is not None:
+            try:
+                client_sock.send_message(message)
+    
+                logging.info(f'action: send_message | result: success | ip: {addr[0]} | msg: {message.data.decode("utf-8")}')
+            except Exception as e:
+                logging.error(f'action: send_message | result: fail | error: {e}')
+        
+        client_sock.close()

@@ -1,9 +1,7 @@
 package common
 
 import (
-	"bufio"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,7 +23,7 @@ type ClientConfig struct {
 // Client Entity that encapsulates how
 type Client struct {
 	config   ClientConfig
-	conn     net.Conn
+	socket   *MBPSocket
 	shutdown chan os.Signal
 }
 
@@ -42,31 +40,30 @@ func NewClient(config ClientConfig) *Client {
 // failure, error is printed in stdout/stderr and exit 1
 // is returned
 func (c *Client) createClientSocket() error {
-	conn, err := net.Dial("tcp", c.config.ServerAddress)
-	if err != nil {
-		log.Criticalf(
-			"action: connect | result: fail | client_id: %v | error: %v",
-			c.config.ID,
-			err,
-		)
-	}
-	c.conn = conn
-	return nil
+	c.socket = NewMBPSocket()
+
+	return c.socket.Connect(c.config.ServerAddress)
 }
 
+// SetupGracefulShutdown sets up a handler for SIGINT and SIGTERM
+// signals to gracefully shutdown the client
 func (c *Client) SetupGracefulShutdown() {
 	c.shutdown = make(chan os.Signal)
 	signal.Notify(c.shutdown, os.Interrupt, syscall.SIGTERM)
 }
 
-func (c *Client) waitLoopOrShutdown() {
+// waitLoopOrShutdown waits for the loop period (from the LoopPeriod config)
+// or for a shutdown signal to be received.
+// 
+// Returns true if the loop should continue, false otherwise.
+func (c *Client) waitLoopOrShutdown() bool {
 	select {
 		case <-time.After(c.config.LoopPeriod):
-			return
+			return true
 
-		case <-c.shutdown:
-			log.Infof("action: graceful_shutdown | result: success | client_id: %v", c.config.ID)
-			os.Exit(0)
+		case signal := <-c.shutdown:
+			log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v | signal: %s", c.config.ID, signal.String())
+			return false
 	}
 }
 
@@ -76,17 +73,37 @@ func (c *Client) StartClientLoop() {
 	// Messages if the message amount threshold has not been surpassed
 	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
 		// Create the connection the server in every loop iteration. Send an
-		c.createClientSocket()
+		if err := c.createClientSocket(); err != nil {
+			log.Criticalf(
+				"action: connect | result: fail | client_id: %v | error: %v",
+				c.config.ID,
+				err,
+			)
+	
+			return
+		}
 
-		// TODO: Modify the send to avoid short-write
-		fmt.Fprintf(
-			c.conn,
-			"[CLIENT %v] Message N°%v\n",
-			c.config.ID,
-			msgID,
-		)
-		msg, err := bufio.NewReader(c.conn).ReadString('\n')
-		c.conn.Close()
+		msg, err := NewMBPMessage("MESSAGE", []byte(fmt.Sprintf("[CLIENT %v] Message N°%v", c.config.ID,msgID)))
+
+		if err != nil {
+			log.Errorf("action: create_message | result: fail | client_id: %v | error: %v",
+				c.config.ID,
+				err,
+			)
+	
+			return
+		}
+
+		if err := c.socket.SendMessage(msg); err != nil {
+			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v",
+				c.config.ID,
+				err,
+			)
+
+			return
+		}
+
+		response, err := c.socket.ReceiveMessage()
 
 		if err != nil {
 			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
@@ -98,10 +115,21 @@ func (c *Client) StartClientLoop() {
 
 		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
 			c.config.ID,
-			msg,
+			string(response.data),
 		)
 
-		c.waitLoopOrShutdown()
+		if err := c.socket.Close(); err != nil {
+			log.Errorf("action: close_connection | result: fail | client_id: %v | error: %v",
+				c.config.ID,
+				err,
+			)
+		}
+
+		if shouldContinue := c.waitLoopOrShutdown(); !shouldContinue {
+			log.Infof("action: graceful_shutdown | result: success | client_id: %v", c.config.ID)
+
+			return
+		}
 	}
 
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
