@@ -1,7 +1,7 @@
 package common
 
 import (
-	"fmt"
+	"encoding/json"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,11 +20,31 @@ type ClientConfig struct {
 	LoopPeriod    time.Duration
 }
 
-// Client Entity that encapsulates how
 type Client struct {
 	config   ClientConfig
 	socket   *MBPSocket
 	shutdown chan os.Signal
+}
+
+type Bet struct {
+	Agency    string
+	FirstName string
+	LastName  string
+	Document  string
+	BirthDate string
+	Number    string
+}
+
+func NewBet(firstName string, lastName string, document string, birthdate string, number string) *Bet {
+	bet := &Bet{
+		FirstName: firstName,
+		LastName:  lastName,
+		Document:  document,
+		BirthDate: birthdate,
+		Number:    number,
+	}
+
+	return bet
 }
 
 // NewClient Initializes a new client receiving the configuration
@@ -67,70 +87,85 @@ func (c *Client) waitLoopOrShutdown() bool {
 	}
 }
 
-// StartClientLoop Send messages to the client until some time threshold is met
-func (c *Client) StartClientLoop() {
-	// There is an autoincremental msgID to identify every message sent
-	// Messages if the message amount threshold has not been surpassed
-	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
-		// Create the connection the server in every loop iteration. Send an
-		if err := c.createClientSocket(); err != nil {
-			log.Criticalf(
-				"action: connect | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
-			)
-	
-			return
-		}
-
-		msg, err := NewMBPMessage("MESSAGE", []byte(fmt.Sprintf("[CLIENT %v] Message N°%v", c.config.ID,msgID)))
-
-		if err != nil {
-			log.Errorf("action: create_message | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
-			)
-	
-			return
-		}
-
-		if err := c.socket.SendMessage(msg); err != nil {
-			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
-			)
-
-			return
-		}
-
-		response, err := c.socket.ReceiveMessage()
-
-		if err != nil {
-			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
-			)
-			return
-		}
-
-		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
+func (c *Client) Connect() error {
+	if err := c.createClientSocket(); err != nil {
+		log.Criticalf(
+			"action: connect | result: fail | client_id: %v | error: %v",
 			c.config.ID,
-			string(response.data),
+			err,
 		)
-
-		if err := c.socket.Close(); err != nil {
-			log.Errorf("action: close_connection | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
-			)
-		}
-
-		if shouldContinue := c.waitLoopOrShutdown(); !shouldContinue {
-			log.Infof("action: graceful_shutdown | result: success | client_id: %v", c.config.ID)
-
-			return
-		}
+	
+		return err
 	}
 
-	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+	return nil
+}
+
+// WaitBetConfirmation waits for the confirmation message from the server
+// after sending a bet. If the client receives a shutdown signal, the
+// confirmation waiting will be interrupted gracefully.
+func (c *Client) WaitBetConfirmation(bet *Bet) {
+	select {
+		case signal := <-c.shutdown:
+			log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v | signal: %s", c.config.ID, signal.String())
+
+		default:
+			msg, err := c.socket.ReceiveMessage()
+
+			if err != nil {
+				log.Errorf("action: apuesta_enviada | result: fail | error: %v", err)
+
+				return
+			}
+
+			if msg.action != "STORED_BET" {
+				log.Errorf("action: apuesta_enviada | result: fail | error: unexpected server response (%v)", msg.action)
+
+				return
+			}
+
+			log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
+				bet.Document,
+				bet.Number,
+			)
+	}
+}
+
+// PlaceBet sends the bet to the server and waits for the confirmation
+// message. If the client receives a shutdown signal, the waiting will
+// be interrupted gracefully.
+func (c *Client) PlaceBet(bet *Bet) error {
+	bet.Agency = c.config.ID
+	serialized_bet, err := json.Marshal(bet)
+
+	if err != nil {
+		return err
+	}
+
+	msg, err := NewMBPMessage("PLACE_BET", serialized_bet)
+
+	if err != nil {
+		return err
+	}
+
+	if err := c.socket.SendMessage(msg); err != nil {
+		return err
+	}
+
+	c.WaitBetConfirmation(bet)
+
+	return nil
+}
+
+func (c *Client) Disconnect() error {
+	if err := c.socket.Close(); err != nil {
+		log.Errorf("action: close_connection | result: fail | client_id: %v | error: %v",
+			c.config.ID,
+			err,
+		)
+
+		return err
+	}
+
+	return nil
 }

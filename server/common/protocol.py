@@ -13,7 +13,7 @@ class MBPMessage:
     enforce any restrictions on the data, it could be a plain text, json or any
     other binary data such as protobufs. Can be though as the body of an HTTP Request.
     """
-    def __init__(self, action: 'str', data: 'bytes'):
+    def __init__(self, action: 'str', data: 'bytes' = b''):
         if ' ' in action or '\n' in action:
             raise ValueError("Action cannot contain spaces or newlines")
 

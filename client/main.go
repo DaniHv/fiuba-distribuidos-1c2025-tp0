@@ -78,6 +78,20 @@ func InitLogger(logLevel string) error {
 	return nil
 }
 
+func InitBet() (*common.Bet, error) {
+	firstName := os.Getenv("NOMBRE")
+	lastName := os.Getenv("APELLIDO")
+	document := os.Getenv("DOCUMENTO")
+	birthDate := os.Getenv("NACIMIENTO")
+	number := os.Getenv("NUMERO")
+
+	if firstName == "" || lastName == "" || document == "" || birthDate == "" || number == "" {
+		return nil, errors.New("Missing required bet env variables.")
+	}
+
+	return common.NewBet(firstName, lastName, document, birthDate, number), nil
+}
+
 // PrintConfig Print all the configuration parameters of the program.
 // For debugging purposes only
 func PrintConfig(v *viper.Viper) {
@@ -110,7 +124,18 @@ func main() {
 		LoopPeriod:    v.GetDuration("loop.period"),
 	}
 
+	bet, err := InitBet()
+
+	if err != nil {
+		log.Criticalf("%s", err)
+
+		return
+	}
+
 	client := common.NewClient(clientConfig)
+
 	client.SetupGracefulShutdown()
-	client.StartClientLoop()
+	client.Connect()
+	client.PlaceBet(bet)
+	client.Disconnect()
 }

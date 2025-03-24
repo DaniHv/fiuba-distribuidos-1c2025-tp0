@@ -2,7 +2,17 @@ import logging
 import signal
 import select
 import os
+import json
 from common.protocol import MBPSocket, MBPMessage
+from common.utils import Bet, store_bets
+
+def deserialize_bet(json_str):
+    data = json.loads(json_str)
+
+    if not all(key in data for key in ['Agency', 'FirstName', 'LastName', 'Document', 'BirthDate', 'Number']):
+        raise ValueError(f'Invalid JSON Bet format ({json_str})')
+
+    return Bet(data['Agency'], data['FirstName'], data['LastName'], data['Document'], data['BirthDate'], data['Number'])
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -45,22 +55,21 @@ class Server:
                     return
 
     def __handle_client_connection(self, client_sock: 'MBPSocket'):
-        addr = client_sock.getpeername()
-        message = None
-
         try:
             message = client_sock.receive_message()
 
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {message.data.decode("utf-8")}')
-        except Exception as e:
-            logging.error(f'action: receive_message | result: fail | error: {e}')
+            if message.action != 'PLACE_BET':
+                raise Exception('Unexpected action received')
 
-        if message is not None:
-            try:
-                client_sock.send_message(message)
-    
-                logging.info(f'action: send_message | result: success | ip: {addr[0]} | msg: {message.data.decode("utf-8")}')
-            except Exception as e:
-                logging.error(f'action: send_message | result: fail | error: {e}')
-        
+            bet = deserialize_bet(message.data)
+            store_bets([bet])
+
+            confirmation = MBPMessage('STORED_BET')
+            client_sock.send_message(confirmation)
+
+            logging.info(f'action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}')
+
+        except Exception as e:
+            logging.info(f'action: apuesta_almacenada | result: fail | error: {e}')
+
         client_sock.close()
