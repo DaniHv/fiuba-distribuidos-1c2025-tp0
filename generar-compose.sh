@@ -30,7 +30,9 @@ services:
       - testing_net
     volumes:
       - ./server/config.ini:/config.ini
-      - ./server/bets.csv:/bets.csv
+      - type: bind
+        source: ./server/bets.csv
+        target: /bets.csv
 
 $(for i in $(seq 1 $clients); do echo "\
   client$i:
