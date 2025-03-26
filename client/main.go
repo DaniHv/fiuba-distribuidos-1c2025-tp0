@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/op/go-logging"
-	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 
 	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/common"
@@ -34,8 +32,7 @@ func InitConfig() (*viper.Viper, error) {
 	// Add env variables supported
 	v.BindEnv("id")
 	v.BindEnv("server", "address")
-	v.BindEnv("loop", "period")
-	v.BindEnv("loop", "amount")
+	v.BindEnv("batch", "maxAmount")
 	v.BindEnv("log", "level")
 
 	// Try to read configuration from config file. If config file
@@ -45,12 +42,6 @@ func InitConfig() (*viper.Viper, error) {
 	v.SetConfigFile("./config.yaml")
 	if err := v.ReadInConfig(); err != nil {
 		fmt.Printf("Configuration could not be read from config file. Using env variables instead")
-	}
-
-	// Parse time.Duration variables and return an error if those variables cannot be parsed
-
-	if _, err := time.ParseDuration(v.GetString("loop.period")); err != nil {
-		return nil, errors.Wrapf(err, "Could not parse CLI_LOOP_PERIOD env var as time.Duration.")
 	}
 
 	return v, nil
@@ -76,20 +67,6 @@ func InitLogger(logLevel string) error {
 	// Set the backends to be used.
 	logging.SetBackend(backendLeveled)
 	return nil
-}
-
-func InitBet() (*common.Bet, error) {
-	firstName := os.Getenv("NOMBRE")
-	lastName := os.Getenv("APELLIDO")
-	document := os.Getenv("DOCUMENTO")
-	birthDate := os.Getenv("NACIMIENTO")
-	number := os.Getenv("NUMERO")
-
-	if firstName == "" || lastName == "" || document == "" || birthDate == "" || number == "" {
-		return nil, errors.New("Missing required bet env variables.")
-	}
-
-	return common.NewBet(firstName, lastName, document, birthDate, number), nil
 }
 
 // PrintConfig Print all the configuration parameters of the program.
@@ -120,11 +97,10 @@ func main() {
 	clientConfig := common.ClientConfig{
 		ServerAddress: v.GetString("server.address"),
 		ID:            v.GetString("id"),
-		LoopAmount:    v.GetInt("loop.amount"),
-		LoopPeriod:    v.GetDuration("loop.period"),
+		BatchAmount:   v.GetInt("batch.maxAmount"),
 	}
 
-	bet, err := InitBet()
+	betsReader, err := common.NewBetsReader()
 
 	if err != nil {
 		log.Criticalf("%s", err)
@@ -135,7 +111,18 @@ func main() {
 	client := common.NewClient(clientConfig)
 
 	client.SetupGracefulShutdown()
-	client.Connect()
-	client.PlaceBet(bet)
-	client.Disconnect()
+
+	if err := client.Connect(); err != nil {
+		log.Criticalf("%s", err)
+
+		os.Exit(1)
+	}
+
+	if err := client.PlaceBets(betsReader); err != nil {
+		log.Criticalf("%s", err)
+	}
+
+	if err := client.Disconnect(); err != nil {
+		log.Criticalf("%s", err)
+	}
 }

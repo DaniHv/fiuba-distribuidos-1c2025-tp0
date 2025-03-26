@@ -42,6 +42,7 @@ class MBPSocket:
     """
 
     listening = False
+    buffer = bytes()
 
     def __init__(self):
         pass
@@ -69,6 +70,7 @@ class MBPSocket:
             raise Exception("Cannot accept connections in a non listening socket.")
         
         c, addr = self._socket.accept()
+        c.setblocking(True)
 
         client_socket = MBPSocket()
         client_socket._socket = c
@@ -99,12 +101,9 @@ class MBPSocket:
 
         # Python readline is a buffered implementation, so reads using it
         # prevents short reads.
-        serialized_message = self._socket.makefile('rb').readline()
+        line = self._receive_line()
 
-        if serialized_message[-1] != 10: # 10 is the byte value for \n
-            raise Exception("Unexpected EOF while reading message")
-
-        return MBPMessage.from_bytes(serialized_message[0:-1])
+        return MBPMessage.from_bytes(line)
 
     def getpeername(self):
         return self._socket.getpeername()
@@ -115,4 +114,20 @@ class MBPSocket:
 
     def fileno(self):
         return self._socket.fileno()
-        
+    
+    # Read a line from the socket, buffering until a newline is found.
+    def _receive_line(self):
+        while True:
+            if b'\n' in self.buffer:
+                index = self.buffer.index(b'\n')
+                line = self.buffer[:index]
+                self.buffer = self.buffer[index+1:]
+                return line
+
+            new_chunk = self._socket.recv(1024)
+
+            if len(new_chunk) == 0:
+                raise Exception(f'Unexpected EOF while reading line. Current buffer: {self.buffer}, chunk: {new_chunk}')
+
+            self.buffer += new_chunk
+                

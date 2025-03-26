@@ -8,8 +8,6 @@ x-client-base: &client-base
     - testing_net
   depends_on:
     - server
-  volumes:
-    - ./client/config.yaml:/config.yaml
 
 services:
   server:
@@ -22,8 +20,10 @@ services:
       - testing_net
     volumes:
       - ./server/config.ini:/config.ini
+      - ./server/bets.csv:/bets.csv
 
   client1:
+    <<: *client-base
     container_name: client1
     environment:
       - CLI_ID=1
@@ -32,7 +32,9 @@ services:
       - DOCUMENTO=40000001
       - NACIMIENTO=2000-01-01
       - NUMERO=20001
-    <<: *client-base
+    volumes:
+      - ./client/config.yaml:/config.yaml
+      - ./.data/agency-1.csv:/bets.csv
   
 networks:
   testing_net:

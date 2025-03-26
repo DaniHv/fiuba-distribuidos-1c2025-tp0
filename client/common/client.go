@@ -2,12 +2,13 @@ package common
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/op/go-logging"
+	"github.com/pkg/errors"
 )
 
 var log = logging.MustGetLogger("log")
@@ -16,8 +17,7 @@ var log = logging.MustGetLogger("log")
 type ClientConfig struct {
 	ID            string
 	ServerAddress string
-	LoopAmount    int
-	LoopPeriod    time.Duration
+	BatchAmount   int
 }
 
 type Client struct {
@@ -56,15 +56,6 @@ func NewClient(config ClientConfig) *Client {
 	return client
 }
 
-// CreateClientSocket Initializes client socket. In case of
-// failure, error is printed in stdout/stderr and exit 1
-// is returned
-func (c *Client) createClientSocket() error {
-	c.socket = NewMBPSocket()
-
-	return c.socket.Connect(c.config.ServerAddress)
-}
-
 // SetupGracefulShutdown sets up a handler for SIGINT and SIGTERM
 // signals to gracefully shutdown the client
 func (c *Client) SetupGracefulShutdown() {
@@ -72,26 +63,14 @@ func (c *Client) SetupGracefulShutdown() {
 	signal.Notify(c.shutdown, os.Interrupt, syscall.SIGTERM)
 }
 
-// waitLoopOrShutdown waits for the loop period (from the LoopPeriod config)
-// or for a shutdown signal to be received.
-// 
-// Returns true if the loop should continue, false otherwise.
-func (c *Client) waitLoopOrShutdown() bool {
-	select {
-		case <-time.After(c.config.LoopPeriod):
-			return true
-
-		case signal := <-c.shutdown:
-			log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v | signal: %s", c.config.ID, signal.String())
-			return false
-	}
-}
-
+// Connect establishes a connection with the server
 func (c *Client) Connect() error {
-	if err := c.createClientSocket(); err != nil {
+	c.socket = NewMBPSocket()
+
+	if err := c.socket.Connect(c.config.ServerAddress); err != nil {
 		log.Criticalf(
 			"action: connect | result: fail | client_id: %v | error: %v",
-			c.config.ID,
+			c.config.ServerAddress,
 			err,
 		)
 	
@@ -104,7 +83,17 @@ func (c *Client) Connect() error {
 // WaitBetConfirmation waits for the confirmation message from the server
 // after sending a bet. If the client receives a shutdown signal, the
 // confirmation waiting will be interrupted gracefully.
-func (c *Client) WaitBetConfirmation(bet *Bet) {
+func (c *Client) WaitBetsProcessing() error {
+	msg, err := NewMBPMessage("PROCESS_BETS", nil)
+
+	if err != nil {
+		return err
+	}
+
+	if err := c.socket.SendMessage(msg); err != nil {
+		return err
+	}
+
 	select {
 		case signal := <-c.shutdown:
 			log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v | signal: %s", c.config.ID, signal.String())
@@ -113,22 +102,21 @@ func (c *Client) WaitBetConfirmation(bet *Bet) {
 			msg, err := c.socket.ReceiveMessage()
 
 			if err != nil {
-				log.Errorf("action: apuesta_enviada | result: fail | error: %v", err)
+				log.Errorf("action: apuestas_enviadas | result: fail | error: %v", err)
 
-				return
+				return err
 			}
 
-			if msg.action != "STORED_BET" {
-				log.Errorf("action: apuesta_enviada | result: fail | error: unexpected server response (%v)", msg.action)
+			if msg.action != "BETS_PROCESSED" {
+				err := errors.New(fmt.Sprintf("Unexpected server response: %v", msg.action))
 
-				return
+				log.Errorf("action: apuestas_enviadas | result: fail | error: %v", err)
+
+				return err
 			}
-
-			log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
-				bet.Document,
-				bet.Number,
-			)
 	}
+
+	return nil
 }
 
 // PlaceBet sends the bet to the server and waits for the confirmation
@@ -152,11 +140,72 @@ func (c *Client) PlaceBet(bet *Bet) error {
 		return err
 	}
 
-	c.WaitBetConfirmation(bet)
+	return nil
+}
+
+// PlaceBets sends bets in batches (as configured in the client) to the
+// server. The bets are read from BetsReader in batches too, to be able
+// to handle large amounts of bets without memory constraints.
+func (c *Client) PlaceBets(br *BetsReader) error {
+	total := 0
+
+	for {
+		bets, err := br.ReadN(c.config.BatchAmount)
+		log.Debugf("action: start_bets_batch | client_id: %v | bets: %v", c.config.ID, len(bets))
+
+		if err != nil {
+			return err
+		}
+
+		if bets == nil || len(bets) == 0 {
+			break
+		}
+
+		total += len(bets)
+
+		for _, bet := range bets {
+			select {
+				case signal := <-c.shutdown:
+					log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v | signal: %s", c.config.ID, signal.String())
+					return nil
+
+				default:
+						log.Debugf("action: place_bets | result: in_progress | client_id: %v | bet: %v", c.config.ID, bet)
+
+						if err := c.PlaceBet(bet); err != nil {
+							log.Errorf("action: place_bets | result: fail | client_id: %v | error: %v",
+								c.config.ID,
+								err,
+							)
+
+							return nil
+						}
+			}
+		}
+
+		if err := c.WaitBetsProcessing(); err != nil {
+			return err
+		}
+
+		log.Infof("action: place_bets | result: success | client_id: %v | bets batch: %v", c.config.ID, len(bets))
+	}
+
+	log.Infof("action: place_bets | result: success | client_id: %v | cantidad: %v", c.config.ID, total)
+
+	msg, err := NewMBPMessage("END", nil)
+
+	if err != nil {
+		return err
+	}
+	
+	if err := c.socket.SendMessage(msg); err != nil {
+		return err
+	}
 
 	return nil
 }
 
+// Disconnect closes the connection with the server
 func (c *Client) Disconnect() error {
 	if err := c.socket.Close(); err != nil {
 		log.Errorf("action: close_connection | result: fail | client_id: %v | error: %v",

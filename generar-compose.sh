@@ -18,8 +18,6 @@ x-client-base: &client-base
     - testing_net
   depends_on:
     - server
-  volumes:
-    - ./client/config.yaml:/config.yaml
 
 services:
   server:
@@ -32,9 +30,11 @@ services:
       - testing_net
     volumes:
       - ./server/config.ini:/config.ini
+      - ./server/bets.csv:/bets.csv
 
 $(for i in $(seq 1 $clients); do echo "\
   client$i:
+    <<: *client-base
     container_name: client$i
     environment:
       - CLI_ID=$i
@@ -43,7 +43,9 @@ $(for i in $(seq 1 $clients); do echo "\
       - DOCUMENTO=4000000$i
       - NACIMIENTO=2000-01-0$i
       - NUMERO=2000$i
-    <<: *client-base
+    volumes:
+      - ./client/config.yaml:/config.yaml
+      - ./.data/agency-$i.csv:/bets.csv
   "
   done
 )
