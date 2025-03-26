@@ -70,7 +70,7 @@ class ClientHandler:
                 if not PlaceBetMessage.is_of_type(message):
                     raise Exception(f'Unexpected action received: {message.action}')
 
-                logging.debug(f'action: apuesta_recibida | result: in_progress | data: {message.data}')
+                logging.debug(f'action: single_apuesta_recibida | result: in_progress | data: {message.data}')
                 bets.append(PlaceBetMessage.get_bet(message))
 
             # Process the batch of bets (store)
