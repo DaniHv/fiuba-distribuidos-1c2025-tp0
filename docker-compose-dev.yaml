@@ -16,11 +16,14 @@ services:
     entrypoint: python3 /main.py
     environment:
       - PYTHONUNBUFFERED=1
+      - CLIENTS=1
     networks:
       - testing_net
     volumes:
       - ./server/config.ini:/config.ini
-      - ./server/bets.csv:/bets.csv
+      - type: bind
+        source: ./server/bets.csv
+        target: /bets.csv
 
   client1:
     <<: *client-base
