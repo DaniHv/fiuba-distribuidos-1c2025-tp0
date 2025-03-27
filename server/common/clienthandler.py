@@ -43,8 +43,8 @@ class BetsProcessedMessage:
         return MBPMessage('BETS_PROCESSED', bytes(json.dumps({'result': 'success' if success else 'fail'}), 'utf-8'))
 
 class BetsResultsMessage:
-    def create_message(total: int) -> 'MBPMessage':
-        return MBPMessage('WINNERS', bytes(json.dumps({ "Winners": total }), 'utf-8'))
+    def create_message(winners: 'dict') -> 'MBPMessage':
+        return MBPMessage('WINNERS', bytes(json.dumps({ "Winners": winners }), 'utf-8'))
 
 # Client handler
 class ClientHandler:
@@ -70,11 +70,11 @@ class ClientHandler:
             if not self._request_bets_batch():
                 break
 
-    def send_results(self, total: int):
+    def send_results(self, winners: dict):
         try:
-            self._socket.send_message(BetsResultsMessage.create_message(total))
+            self._socket.send_message(BetsResultsMessage.create_message(winners))
 
-            logging.info(f'action: send_results | result: success | cantidad: {total}')
+            logging.info(f'action: send_results | result: success | cantidad: {sum(winners.values())}')
         except Exception as e:
             logging.error(f'action: send_results | result: fail | error: {e}')
 
