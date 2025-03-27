@@ -12,8 +12,6 @@ class Lottery:
     """
     winners_by_client = {}
 
-    logging.debug(f'action: processing_winners | result: pending')
-
     for bet in load_bets():
       if has_won(bet):
         winners_by_client[bet.agency] = winners_by_client.get(bet.agency, 0) + 1
