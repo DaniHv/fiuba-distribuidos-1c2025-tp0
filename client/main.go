@@ -116,10 +116,14 @@ func main() {
 	if err := client.Connect(); err != nil {
 		log.Criticalf("%s", err)
 
-		os.Exit(1)
+		return
 	}
 
 	if err := client.PlaceBets(betsReader); err != nil {
+		log.Criticalf("%s", err)
+	}
+
+	if err := client.WaitForResults(); err != nil {
 		log.Criticalf("%s", err)
 	}
 

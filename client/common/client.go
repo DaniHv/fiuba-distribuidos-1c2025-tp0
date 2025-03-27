@@ -1,7 +1,6 @@
 package common
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -26,27 +25,6 @@ type Client struct {
 	shutdown chan os.Signal
 }
 
-type Bet struct {
-	Agency    string
-	FirstName string
-	LastName  string
-	Document  string
-	BirthDate string
-	Number    string
-}
-
-func NewBet(firstName string, lastName string, document string, birthdate string, number string) *Bet {
-	bet := &Bet{
-		FirstName: firstName,
-		LastName:  lastName,
-		Document:  document,
-		BirthDate: birthdate,
-		Number:    number,
-	}
-
-	return bet
-}
-
 // NewClient Initializes a new client receiving the configuration
 // as a parameter
 func NewClient(config ClientConfig) *Client {
@@ -64,6 +42,8 @@ func (c *Client) SetupGracefulShutdown() {
 }
 
 // Connect establishes a connection with the server
+// and registers the client in the server (to let the server know which
+// agency is connected).
 func (c *Client) Connect() error {
 	c.socket = NewMBPSocket()
 
@@ -77,6 +57,22 @@ func (c *Client) Connect() error {
 		return err
 	}
 
+	msg, err := NewRegisterMessage(c.config.ID).GetMessage()
+
+	if err != nil {
+		return err
+	}
+
+	if err := c.socket.SendMessage(msg); err != nil {
+		log.Criticalf(
+			"action: register | result: fail | client_id: %v | error: %v",
+			c.config.ID,
+			err,
+		)
+
+		return err
+	}
+
 	return nil
 }
 
@@ -84,7 +80,7 @@ func (c *Client) Connect() error {
 // after sending a bet. If the client receives a shutdown signal, the
 // confirmation waiting will be interrupted gracefully.
 func (c *Client) WaitBetsProcessing() error {
-	msg, err := NewMBPMessage("PROCESS_BETS", nil)
+	msg, err := NewProcessBetsMessage().GetMessage()
 
 	if err != nil {
 		return err
@@ -123,14 +119,7 @@ func (c *Client) WaitBetsProcessing() error {
 // message. If the client receives a shutdown signal, the waiting will
 // be interrupted gracefully.
 func (c *Client) PlaceBet(bet *Bet) error {
-	bet.Agency = c.config.ID
-	serialized_bet, err := json.Marshal(bet)
-
-	if err != nil {
-		return err
-	}
-
-	msg, err := NewMBPMessage("PLACE_BET", serialized_bet)
+	msg, err := NewPlaceBetMessage(bet).GetMessage()
 
 	if err != nil {
 		return err
@@ -192,7 +181,7 @@ func (c *Client) PlaceBets(br *BetsReader) error {
 
 	log.Infof("action: place_bets | result: success | client_id: %v | cantidad: %v", c.config.ID, total)
 
-	msg, err := NewMBPMessage("END", nil)
+	msg, err := NewEndBetsMessage().GetMessage()
 
 	if err != nil {
 		return err
@@ -201,6 +190,28 @@ func (c *Client) PlaceBets(br *BetsReader) error {
 	if err := c.socket.SendMessage(msg); err != nil {
 		return err
 	}
+
+	return nil
+}
+
+func (c *Client) WaitForResults() error {
+	msg, err := c.socket.ReceiveMessage()
+
+	if err != nil {
+		log.Errorf("action: consulta_ganadores | result: fail | error: %v", err)
+
+		return err
+	}
+
+	winnersMsg, err := NewWinnersMessage(msg)
+
+	if err != nil {
+		log.Errorf("action: consulta_ganadores | result: fail | error: %v", err)
+
+		return err
+	}
+
+	log.Errorf("action: consulta_ganadores | result: success | cantidad: %v", winnersMsg.Winners)
 
 	return nil
 }
