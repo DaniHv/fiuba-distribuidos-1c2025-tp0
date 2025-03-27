@@ -85,7 +85,7 @@ class MBPSocket:
         if self.listening:
             raise Exception("Cannot send message in a listening socket")
         
-        self._socket.send(message.to_bytes() + b'\n')
+        self._socket.sendall(message.to_bytes() + b'\n')
 
     def receive_message(self) -> 'MBPMessage':
         """
