@@ -1,8 +1,11 @@
 import logging
 import json
+import threading
+import queue
 
 from common.protocol import MBPSocket, MBPMessage
 from common.utils import Bet, store_bets
+from common.betsstore import BetsSharedStore
 
 # Client->Server messages
 class PlaceBetMessage:
@@ -47,13 +50,21 @@ class BetsResultsMessage:
         return MBPMessage('WINNERS', bytes(json.dumps({ "Winners": total }), 'utf-8'))
 
 # Client handler
-class ClientHandler:
-    def __init__(self, socket: 'MBPSocket'):
+class ClientHandler(threading.Thread):
+    def __init__(self, socket: 'MBPSocket', bets_store: 'BetsSharedStore', draw_barrier: 'threading.Barrier'):
+        super().__init__()
         self._socket = socket
+        self._bets_store = bets_store
+        self._draw_barrier = draw_barrier
+        self._results_queue = queue.Queue()
 
-        self.wait_register()
+    def run(self):
+        self._wait_register()
+        self._request_bets()
+        self._draw_barrier.wait()
+        self._send_results_to_client()
 
-    def wait_register(self):
+    def _wait_register(self):
         try: 
             msg = self._socket.receive_message()
 
@@ -65,18 +76,23 @@ class ClientHandler:
         except Exception as e:
             logging.error(f'action: register | result: fail | error: {e}')
 
-    def request_bets(self):
+    def _request_bets(self):
         while True:
             if not self._request_bets_batch():
                 break
 
-    def send_results(self, total: int):
+    def _send_results_to_client(self):
+        total = self._results_queue.get()
+
         try:
             self._socket.send_message(BetsResultsMessage.create_message(total))
 
             logging.info(f'action: send_results | result: success | cantidad: {total}')
         except Exception as e:
             logging.error(f'action: send_results | result: fail | error: {e}')
+
+    def send_results(self, total: int):
+        self._results_queue.put(total)
 
     # Request and process a batch of bets from the client, returning True if more
     # batches are expected or False if the client has finished.

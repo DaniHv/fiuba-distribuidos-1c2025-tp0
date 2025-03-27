@@ -2,11 +2,11 @@ import logging
 import signal
 import select
 import os
-import json
+import threading
 from common.protocol import MBPSocket
-from common.utils import Bet
 from common.clienthandler import ClientHandler
 from common.lottery import Lottery
+from common.betsstore import BetsSharedStore
 
 
 class Server:
@@ -30,11 +30,14 @@ class Server:
         self.shutdown = True
         os.write(self.shutdown_w, b'1')
 
-    def __graceful_shutdown(self):
+    def __close(self):
         self._server_socket.close()
 
         for client in self.clients:
-            client.close()
+            client.join()
+
+    def __graceful_shutdown(self):
+        self.__close()
 
         logging.info("action: graceful_shutdown | result: success")
 
@@ -42,6 +45,9 @@ class Server:
         """
         Start listening for connections until a shutdown is requested.
         """
+
+        draw_barrier = threading.Barrier(self.clients_qty + 1) # +1 for the main thread
+        bets_store = BetsSharedStore()
 
         # Accept connections from agencies until all of them finish sending their bets
         while len(self.clients) is not self.clients_qty:
@@ -55,8 +61,8 @@ class Server:
                     client_sock, addr = self._server_socket.accept()
                     logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
 
-                    handler = ClientHandler(client_sock)
-                    handler.request_bets()
+                    handler = ClientHandler(client_sock, bets_store, draw_barrier)
+                    handler.start()
 
                     self.clients.append(handler)
 
@@ -64,6 +70,10 @@ class Server:
                     self.__graceful_shutdown()
                     return
 
-        # Get winners and notify clients
+        # Wait for all clients to finish sending their bets
+        draw_barrier.wait()
+
         lottery = Lottery()
         lottery.notify_winners(self.clients)
+
+        self.__close()
