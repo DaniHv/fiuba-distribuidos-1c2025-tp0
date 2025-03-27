@@ -211,7 +211,7 @@ func (c *Client) WaitForResults() error {
 		return err
 	}
 
-	log.Infof("action: consulta_ganadores | result: success | cantidad: %v", winnersMsg.Winners)
+	log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %v", winnersMsg.Winners)
 
 	return nil
 }
