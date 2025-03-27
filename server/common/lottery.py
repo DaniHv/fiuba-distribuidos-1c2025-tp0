@@ -14,12 +14,11 @@ class Lottery:
 
     logging.debug(f'action: processing_winners | result: pending')
 
-    bets = 0
-
     for bet in load_bets():
-      bets += 1
       if has_won(bet):
         winners_by_client[bet.agency] = winners_by_client.get(bet.agency, 0) + 1
+
+    logging.info('action: sorteo | result: success')
 
     for client in clients:
       winners = winners_by_client.get(int(client.id), 0)
