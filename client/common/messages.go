@@ -94,7 +94,7 @@ func (m *EndBetsMessage) GetMessage() (*MBPMessage, error) {
 /// Server->Client messages
 
 type WinnersMessage struct {
-	Winners int
+	Winners map[string]int
 }
 
 func NewWinnersMessage(msg *MBPMessage) (*WinnersMessage, error) {
@@ -107,4 +107,14 @@ func NewWinnersMessage(msg *MBPMessage) (*WinnersMessage, error) {
 	json.Unmarshal(msg.data, &m)
 
 	return m, nil
+}
+
+func (m * WinnersMessage) GetTotal() int {
+	total := 0
+
+	for _, v := range m.Winners {
+		total += v
+	}
+
+	return total
 }

@@ -8,17 +8,21 @@ class Lottery:
 
   def notify_winners(self, clients: 'list[ClientHandler]'):
     """
-    Get the winners of the lottery and notify the clients.
+    Process all bets placed by clients, identify winners and notify them
+    with ClientHandler.send_results() method. 
     """
     winners_by_client = {}
 
     for bet in load_bets():
       if has_won(bet):
-        winners_by_client[bet.agency] = winners_by_client.get(bet.agency, 0) + 1
+        client_results = winners_by_client.get(bet.agency, {})
+        client_results[bet.document] = client_results.get(bet.document, 0) + 1
+
+        winners_by_client[bet.agency] = client_results
 
     logging.info('action: sorteo | result: success')
 
     for client in clients:
-      winners = winners_by_client.get(int(client.id), 0)
+      winners = winners_by_client.get(int(client.id), {})
 
       client.send_results(winners)
