@@ -131,5 +131,5 @@ func main() {
 		log.Criticalf("%s", err)
 	}
 	
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 }
