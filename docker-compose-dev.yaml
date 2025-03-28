@@ -27,11 +27,6 @@ services:
     container_name: client1
     environment:
       - CLI_ID=1
-      - NOMBRE=DAN1
-      - APELLIDO=HUR1
-      - DOCUMENTO=40000001
-      - NACIMIENTO=2000-01-01
-      - NUMERO=20001
     volumes:
       - ./client/config.yaml:/config.yaml
       - ./.data/agency-1.csv:/bets.csv
