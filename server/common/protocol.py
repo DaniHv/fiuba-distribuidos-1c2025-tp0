@@ -42,6 +42,7 @@ class MBPSocket:
     """
 
     listening = False
+    buffer = bytes()
 
     def __init__(self):
         pass
@@ -105,6 +106,7 @@ class MBPSocket:
         return self._socket.getpeername()
 
     def close(self):
+        self._socket.shutdown(socket.SHUT_RDWR)
         self._socket.close()
         self.listening = False
 
