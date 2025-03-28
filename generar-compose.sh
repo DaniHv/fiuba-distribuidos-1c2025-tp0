@@ -41,11 +41,6 @@ $(for i in $(seq 1 $clients); do echo "\
     container_name: client$i
     environment:
       - CLI_ID=$i
-      - NOMBRE=DAN$i
-      - APELLIDO=HUR$i
-      - DOCUMENTO=4000000$i
-      - NACIMIENTO=2000-01-0$i
-      - NUMERO=2000$i
     volumes:
       - ./client/config.yaml:/config.yaml
       - ./.data/agency-$i.csv:/bets.csv
