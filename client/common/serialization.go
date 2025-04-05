@@ -2,7 +2,7 @@ package common
 
 import (
 	"bytes"
-	"errors"
+	"fmt"
 )
 
 // SBDSerialization (Sequential Binary Data Serialization) provides
@@ -43,6 +43,13 @@ func SBDSerializeArray(items [][]string) []byte {
 }
 
 func SBDDeserialize(data []byte) []string {
+	// Go's Split method will return a slice with a single empty string
+	// even if the input is empty, to avoid that an early return
+	// is used to return an empty slice (length zero).
+	if len(data) == 0 {
+		return make([]string, 0)
+	}
+
 	parts := bytes.Split(data, []byte{0})
 	strings := make([]string, len(parts))
 
@@ -61,7 +68,7 @@ func SBDDeserializeArray(data []byte, expected_parts int) ([][]string, error) {
 	}
 
 	if len(parts) % expected_parts != 0 {
-		return nil, errors.New("invalid number of parts")
+		return nil, fmt.Errorf("invalid number of parts %v, expected multiple of %v", len(parts), expected_parts)
 	}
 
 	items_qty := len(parts) / expected_parts
