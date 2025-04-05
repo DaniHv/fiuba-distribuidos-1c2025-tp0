@@ -27,8 +27,23 @@ func NewBet(firstName string, lastName string, document string, birthDate string
 	}
 }
 
+func (b *Bet) Size() int {
+	return len(b.FirstName) + 
+		len(b.LastName) +
+		len(b.Document) +
+		len(b.BirthDate) +
+		len(b.Number)
+}
+
 type BetsReader struct {
+	file *os.File
 	csvReader *csv.Reader
+
+  // If a bet is read from the file using ReadN, but cannot
+	// be returned because it exceeds the maxSize, it is stored
+	// in this bufferedBet. The next call to Read will return
+	// this bufferedBet.
+	bufferedBet *Bet
 }
 
 func NewBetsReader() (*BetsReader, error) {
@@ -40,7 +55,7 @@ func NewBetsReader() (*BetsReader, error) {
 
 	reader := csv.NewReader(file)
 
-	return &BetsReader{csvReader: reader}, nil
+	return &BetsReader{file: file, csvReader: reader}, nil
 }
 
 // Read reads a single bet from the file, returning it or an error.
@@ -63,22 +78,45 @@ func (br *BetsReader) Read() (*Bet, error) {
 	return NewBet(bet[0], bet[1], bet[2], bet[3], bet[4]), nil
 }
 
-func (br *BetsReader) ReadN(n int) ([]*Bet, error) {
+// Reads N bets from the file until EOF
+func (br *BetsReader) ReadN(n int, maxSize int) ([]*Bet, error) {
 	bets := make([]*Bet, 0)
+	accumulatedSize := 0
+
+	if (br.bufferedBet != nil) {
+		bets = append(bets, br.bufferedBet)
+		br.bufferedBet = nil
+		accumulatedSize += br.bufferedBet.Size()
+	}
 
 	for i := 0; i < n; i++ {
+		// If the accumulated size of the bets exceeds the maxSize,
+		// we stop reading more bets and return the ones we have.
+		// The last bet read is stored in bufferedBet, so it can
+		// be returned in the next call to Read.
+		if accumulatedSize >= maxSize {
+			br.bufferedBet = bets[len(bets)-1]
+			bets = bets[:len(bets)-1]
+			break
+		}
+
 		bet, err := br.Read()
 
 		if err != nil {
 			return nil, errors.Wrapf(err, "Could not read bet %d", i)
 		}
 
-		if bet == nil {
+		if bet == nil  {
 			break
 		}
 
 		bets = append(bets, bet)
+		accumulatedSize += bet.Size()
 	}
 
 	return bets, nil
+}
+
+func (br *BetsReader) Close() error {
+	return br.file.Close()
 }
