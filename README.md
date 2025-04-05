@@ -55,15 +55,17 @@ La implementación del protocolo se ha realizado de forma independiente, genéri
 Importante: Debido a que TCP es un protocolo que garantiza el orden y la entrega de paquetes, se han obviado algunas indicaciones en mensajes de ejercicios futuros tales como indicar la cantidad de apuestas recibidas por parte del servidor al cliente.
 
 ### Cliente/Servidor
-Tanto el cliente como el servidor son modificados para implementar la lógica de negocio necesaria. La comunicación entre ellos se lleva mediante `MBPMessages` a través de un `MBPSocket`, los cuales hacen uso de información transmitida en formato json (debido a su soporte integrado en go y python en sus respectivas librerías estándar, y su facilidad de uso).
+Tanto el cliente como el servidor son modificados para implementar la lógica de negocio necesaria. La comunicación entre ellos se lleva mediante `MBPMessages` a través de un `MBPSocket`, los cuales hacen uso de información transmitida en formato binario mediante un protocolo de serialización propio SBDSerialization (Sequential Binary Data Serialization).
+
+Este protoclo de información, SBDSerialization, transmite strings con un orden establecido permitiendo a receptores realizar una deserialización de información precisa sin necesidad de información adicional que indique a que corresponde cada dato, cada uno de estos strings son separados por un \0, por ejemplo: `MESSAGE DATA1\0DATA2\0\DATA3\0\n`
 
 Se definen los mensajes:
 
 - Cliente > Servidor
-- `PLACE_BET`: enviado por el cliente al servidor para registrar una apuesta, con información en json `{ "Agency": {{id cliente}}, "FirstName": {{nombre}}, "LastName": {{apellido}}, "Document": {{document}}, "BirthDate": {{nacimiento}}, "Number": {{numero}} }`.
+- `PLACE_BET`: enviado por el cliente al servidor para registrar una apuesta, con información binaria de la forma `{{nombre}}\0{{apellido}}\0{{document}}\0{{nacimiento}}\0{{numero}}`.
 
 - Servidor > Cliente
-- `BETS_PROCESSED`: enviado por el cliente al servidor para registrar una apuesta, con data `{}`.
+- `BETS_PROCESSED`: enviado por el servidor al cliente para confirmar el registro de la apuesta, sin data adicional.
 - `BET` enviado por el servidor al cliente al registrar correctamente una apuesta recibida, sin data adicional.
 
 # EJ6:
@@ -73,11 +75,12 @@ Se modifica el servidor para recibir en loop múltiples apuestas (en EJ5 el serv
 Para este objetivo se implementan mensajes adicionales:
 
 - Cliente -> Servidor:
-- `PROCESS_BETS`: Le indica al servidor que ya se enviaron todas las apuestas del batch. Este mensaje no contiene información adicional.
-- `END`: Le indica al servidor que no hay más apuestas por ser enviadas. Siempre será precedido por un `PROCESS_BETS`. Este mensaje no contiene información adicional.
+- `PLACE_BETS`: Se modifica el mensaje `PLACE_BET` del ej5 para enviar una lista de bets en lugar de una única bet, haciendo uso del los métodos de serialización y serialización de arrays en el protocolo de serialización implementado.
+- `END`: Le indica al servidor que no hay más apuestas por ser enviadas. Este mensaje no contiene información adicional.
+- `REGISTER`: Le indica al servidor cual agencia se está registrado, con información serializada `{{id cliente}}`. Anteriormente no resultaba relevante conocer el id del cliente ya que las apuestas enviadas contenian el id, pero al realizar el sorteo en batches resulta necesario conocerlo para evitar su repetición, planteando un register inicial y evitando la redudancia de los `PLACE_BETS`.
 
 - Servidor -> Cliente:
-- `BETS_PROCESSED`: Le indica al cliente que su solicitud de procesamiento `PROCESS_BETS` fue exitosa. Este mensaje no contiene información adicional.
+- `BETS_PROCESSED`: Le indica al cliente que su solicitud de procesamiento de las bets fue exitoso. Este mensaje no contiene información adicional.
 
 Una vez finalizado el envío de todas las apuestas, el cliente se desconecta y el servidor vuelve a estar disponible para recibir nuevas conexiones.
 
@@ -89,12 +92,8 @@ El procesamiento de los ganadores se realiza mediante las funciónes provistas `
 
 Para este objetivo se implementan mensajes adicionales:
 
-Cliente->Servidor:
-- `REGISTER`: Le indica al servidor cual agencia se está registrado, con información en json `{ "ID": {{id cliente}} }`. Anteriormente no resultaba relevante conocer el id del cliente ya que las apuestas enviadas contenian el id, pero al realizar el sorteo resulta necesario conocerlo, planteando un register inicial y evitando la redudancia de los `PLACE_BET`.
-- `PLACE_BET`: Se modifica el mensaje del EJ5 para eliminar el dato `Agency` en el json enviado.
-
 Servidor->Cliente:
-- `WINNERS`: Le indica al cliente la cantidad de ganadores de apuestas enviadas por él, con información en json `{ "Winners": {{cantidad}} }`
+- `WINNERS`: Le indica al cliente la cantidad de ganadores de apuestas enviadas por él, recibiendo un array de datos de la forma `{{document}}\0{{wins}}`
 
 # EJ8:
 
