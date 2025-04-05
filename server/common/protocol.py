@@ -99,8 +99,6 @@ class MBPSocket:
         if self.listening:
             raise Exception("Cannot receive message in a listening socket")
 
-        # Python readline is a buffered implementation, so reads using it
-        # prevents short reads.
         line = self._receive_line()
 
         return MBPMessage.from_bytes(line)
@@ -109,6 +107,7 @@ class MBPSocket:
         return self._socket.getpeername()
 
     def close(self):
+        self._socket.shutdown(socket.SHUT_RDWR)
         self._socket.close()
         self.listening = False
 
@@ -130,4 +129,3 @@ class MBPSocket:
                 raise Exception(f'Unexpected EOF while reading line. Current buffer: {self.buffer}, chunk: {new_chunk}')
 
             self.buffer += new_chunk
-                

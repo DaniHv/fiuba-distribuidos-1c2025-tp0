@@ -2,7 +2,6 @@ import logging
 import signal
 import select
 import os
-import json
 from common.protocol import MBPSocket
 from common.utils import Bet
 from common.clienthandler import ClientHandler

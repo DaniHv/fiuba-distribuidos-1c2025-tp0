@@ -1,9 +1,9 @@
 import logging
 import json
-import select
 
 from common.protocol import MBPSocket, MBPMessage
 from common.utils import Bet, store_bets
+from common.serialization import SBDSerialization
 
 # Client->Server messages
 class PlaceBetMessage:
@@ -11,12 +11,9 @@ class PlaceBetMessage:
         return message.action == 'PLACE_BET'
     
     def get_bet(message: 'MBPMessage') -> 'Bet':
-        data = json.loads(message.data)
+        parts = SBDSerialization.deserialize(message.data, 6)
 
-        if not all(key in data for key in ['Agency', 'FirstName', 'LastName', 'Document', 'BirthDate', 'Number']):
-            raise ValueError(f'Invalid JSON Bet format ({message.data})')
-
-        return Bet(data['Agency'], data['FirstName'], data['LastName'], data['Document'], data['BirthDate'], data['Number'])
+        return Bet(parts[0], parts[1], parts[2], parts[3], parts[4], parts[5])
 
 class ProcessBetsMessage:
     def is_of_type(message: 'MBPMessage') -> 'bool':

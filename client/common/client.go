@@ -1,7 +1,6 @@
 package common
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -45,6 +44,23 @@ func NewBet(firstName string, lastName string, document string, birthdate string
 	}
 
 	return bet
+}
+
+func (b *Bet) GetMessage() (*MBPMessage, error) {
+	msg, err := NewMBPMessage("PLACE_BET", SBDSerialize([]string{
+		b.Agency,
+		b.FirstName,
+		b.LastName,
+		b.Document,
+		b.BirthDate,
+		b.Number,
+	}))
+
+	if err != nil {
+		return nil, err
+	}
+
+	return msg, nil
 }
 
 // NewClient Initializes a new client receiving the configuration
@@ -124,13 +140,8 @@ func (c *Client) WaitBetsProcessing() error {
 // be interrupted gracefully.
 func (c *Client) PlaceBet(bet *Bet) error {
 	bet.Agency = c.config.ID
-	serialized_bet, err := json.Marshal(bet)
 
-	if err != nil {
-		return err
-	}
-
-	msg, err := NewMBPMessage("PLACE_BET", serialized_bet)
+	msg, err := bet.GetMessage()
 
 	if err != nil {
 		return err
@@ -157,7 +168,7 @@ func (c *Client) PlaceBets(br *BetsReader) error {
 			return err
 		}
 
-		if bets == nil || len(bets) == 0 {
+		if len(bets) == 0 {
 			break
 		}
 
