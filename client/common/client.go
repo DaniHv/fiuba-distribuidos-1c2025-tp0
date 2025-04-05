@@ -131,7 +131,9 @@ func (c *Client) PlaceBets(br *BetsReader) error {
 				return nil
 
 			default:
-				bets, err := br.ReadN(c.config.BatchAmount)
+				// Note: Since ReadN doesn't consider added sizes from the tranmission protocols (message action + whitespace + \n) and serialization
+				// (\0 between each part), this limit is rounded down to 7800 bytes to avoid exceeding the limit by this approximation.
+				bets, err := br.ReadN(c.config.BatchAmount, 7800)
 				log.Debugf("action: start_bets_batch | client_id: %v | bets: %v", c.config.ID, len(bets))
 
 				if err != nil {

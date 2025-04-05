@@ -102,6 +102,11 @@ func main() {
 	}
 
 	betsReader, err := common.NewBetsReader()
+	defer func () {
+		if err := betsReader.Close(); err != nil {
+			log.Criticalf("%s", err)
+		}
+	}()
 
 	if err != nil {
 		log.Criticalf("%s", err)
