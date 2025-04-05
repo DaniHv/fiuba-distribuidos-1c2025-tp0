@@ -2,7 +2,7 @@ package common
 
 import (
 	"bytes"
-	"errors"
+	"fmt"
 )
 
 // SBDSerialization (Sequential Binary Data Serialization) provides
@@ -61,7 +61,7 @@ func SBDDeserializeArray(data []byte, expected_parts int) ([][]string, error) {
 	}
 
 	if len(parts) % expected_parts != 0 {
-		return nil, errors.New("invalid number of parts")
+		return nil, fmt.Errorf("invalid number of parts %v, expected multiple of %v", len(parts), expected_parts)
 	}
 
 	items_qty := len(parts) / expected_parts
