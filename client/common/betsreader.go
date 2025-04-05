@@ -9,6 +9,24 @@ import (
 	"github.com/pkg/errors"
 )
 
+type Bet struct {
+	FirstName string
+	LastName  string
+	Document  string
+	BirthDate string
+	Number    string
+}
+
+func NewBet(firstName string, lastName string, document string, birthDate string, number string) *Bet {
+	return &Bet{
+		FirstName: firstName,
+		LastName:  lastName,
+		Document:  document,
+		BirthDate: birthDate,
+		Number: number,
+	}
+}
+
 type BetsReader struct {
 	csvReader *csv.Reader
 }

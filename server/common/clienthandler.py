@@ -1,37 +1,55 @@
 import logging
-import json
 
 from common.protocol import MBPSocket, MBPMessage
 from common.utils import Bet, store_bets
 from common.serialization import SBDSerialization
 
 # Client->Server messages
-class PlaceBetMessage:
+class PlaceBetsMessage:
     def is_of_type(message: 'MBPMessage') -> 'bool':
-        return message.action == 'PLACE_BET'
+        return message.action == 'PLACE_BETS'
     
-    def get_bet(message: 'MBPMessage') -> 'Bet':
-        parts = SBDSerialization.deserialize(message.data, 6)
+    def get_bets(agency_id: 'str', message: 'MBPMessage') -> 'Bet':
+        bet_parts = SBDSerialization.deserialize_array(message.data, 5)
 
-        return Bet(parts[0], parts[1], parts[2], parts[3], parts[4], parts[5])
-
-class ProcessBetsMessage:
-    def is_of_type(message: 'MBPMessage') -> 'bool':
-        return message.action == 'PROCESS_BETS'
+        return [Bet(agency_id, bet[0], bet[1], bet[2], bet[3], bet[4]) for bet in bet_parts]
 
 class EndBetsMessage:
     def is_of_type(message: 'MBPMessage') -> 'bool':
         return message.action == 'END'
 
+class RegisterMessage:
+    def is_of_type(message: 'MBPMessage') -> 'bool':
+        return message.action == 'REGISTER'
+    
+    def get_id(message: 'MBPMessage') -> int:
+        parts = SBDSerialization.deserialize(message.data, 1)
+
+        return parts[0]
+
 # Server->Client messages
 class BetsProcessedMessage:
     def create_message(success: 'bool') -> 'MBPMessage':
-        return MBPMessage('BETS_PROCESSED', bytes(json.dumps({'result': 'success' if success else 'fail'}), 'utf-8'))
+        return MBPMessage('BETS_PROCESSED', SBDSerialization.serialize(['success' if success else 'fail']))
 
 # Client handler
 class ClientHandler:
     def __init__(self, socket: 'MBPSocket'):
         self._socket = socket
+
+        self._wait_register()
+
+    def _wait_register(self):
+        try: 
+            msg = self._socket.receive_message()
+
+            if not RegisterMessage.is_of_type(msg):
+                raise Exception(f'Register message with unexpected action received: {msg.action}')
+
+            self.id = RegisterMessage.get_id(msg)
+
+        except Exception as e:
+            logging.error(f'action: register | result: fail | error: {e}')
 
     def handle_connection(self):
         self._request_bets()
@@ -46,31 +64,22 @@ class ClientHandler:
     # Request and process a batch of bets from the client, returning True if more
     # batches are expected or False if the client has finished.
     def _request_bets_batch(self) -> 'bool':
-        bets = []
-
         try:
             # Obtain batch bets from the client
-            while True:
-                message = self._socket.receive_message()
+            message = self._socket.receive_message()
 
-                # EndBetsMessage is expected to be preceded by a ProcessBetsMessage,
-                # for that reason the loop is stopped as no bets are expected to be
-                # pending for processing.
-                if EndBetsMessage.is_of_type(message):
-                    logging.debug(f'action: end_of_bets | result: in_progress')
-                    return False
+            # EndBetsMessage is expected to be preceded by a ProcessBetsMessage,
+            # for that reason the loop is stopped as no bets are expected to be
+            # pending for processing.
+            if EndBetsMessage.is_of_type(message):
+                logging.debug(f'action: end_of_bets | result: in_progress')
+                return False
 
-                if ProcessBetsMessage.is_of_type(message):
-                    logging.debug(f'action: process_bets | result: in_progress')
-                    break
-
-                if not PlaceBetMessage.is_of_type(message):
-                    raise Exception(f'Unexpected action received: {message.action}')
-
-                logging.debug(f'action: single_apuesta_recibida | result: in_progress | data: {message.data}')
-                bets.append(PlaceBetMessage.get_bet(message))
+            if not PlaceBetsMessage.is_of_type(message):
+                raise Exception(f'Unexpected action received: {message.action}')
 
             # Process the batch of bets (store)
+            bets = PlaceBetsMessage.get_bets(self.id, message)
             store_bets(bets)
             logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
 

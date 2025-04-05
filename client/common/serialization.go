@@ -23,6 +23,22 @@ func SBDSerialize(parts []string) []byte {
 	return data
 }
 
+func SBDSerializeArray(items [][]string) []byte {
+	data := make([]byte, 0)
+
+	for _, item := range items {
+		data = append(data, SBDSerialize(item)...)
+		data = append(data, []byte{0}...)
+	}
+
+	// Remove the last 0 byte
+	if len(data) > 0 {
+		data = data[:len(data)-1]
+	}
+
+	return data
+}
+
 func SBDDeserialize(data []byte) []string {
 	parts := bytes.Split(data, []byte{0})
 	strings := make([]string, len(parts))
