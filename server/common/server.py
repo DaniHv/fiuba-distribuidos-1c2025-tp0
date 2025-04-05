@@ -2,17 +2,14 @@ import logging
 import signal
 import select
 import os
-import json
 from common.protocol import MBPSocket, MBPMessage
 from common.utils import Bet, store_bets
+from common.serialization import SBDSerialization
 
-def deserialize_bet(json_str):
-    data = json.loads(json_str)
+def deserialize_bet(data: 'bytes') -> 'Bet':
+    parts = SBDSerialization.deserialize(data, 6)
 
-    if not all(key in data for key in ['Agency', 'FirstName', 'LastName', 'Document', 'BirthDate', 'Number']):
-        raise ValueError(f'Invalid JSON Bet format ({json_str})')
-
-    return Bet(data['Agency'], data['FirstName'], data['LastName'], data['Document'], data['BirthDate'], data['Number'])
+    return Bet(parts[0], parts[1], parts[2], parts[3], parts[4], parts[5])
 
 class Server:
     def __init__(self, port, listen_backlog):

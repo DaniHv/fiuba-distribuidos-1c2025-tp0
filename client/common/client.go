@@ -1,7 +1,6 @@
 package common
 
 import (
-	"encoding/json"
 	"os"
 	"os/signal"
 	"syscall"
@@ -47,6 +46,23 @@ func NewBet(firstName string, lastName string, document string, birthdate string
 	return bet
 }
 
+func (b *Bet) GetMessage() (*MBPMessage, error) {
+	msg, err := NewMBPMessage("PLACE_BET", SBDSerialize([]string{
+		b.Agency,
+		b.FirstName,
+		b.LastName,
+		b.Document,
+		b.BirthDate,
+		b.Number,
+	}))
+
+	if err != nil {
+		return nil, err
+	}
+
+	return msg, nil
+}
+
 // NewClient Initializes a new client receiving the configuration
 // as a parameter
 func NewClient(config ClientConfig) *Client {
@@ -70,21 +86,6 @@ func (c *Client) createClientSocket() error {
 func (c *Client) SetupGracefulShutdown() {
 	c.shutdown = make(chan os.Signal)
 	signal.Notify(c.shutdown, os.Interrupt, syscall.SIGTERM)
-}
-
-// waitLoopOrShutdown waits for the loop period (from the LoopPeriod config)
-// or for a shutdown signal to be received.
-// 
-// Returns true if the loop should continue, false otherwise.
-func (c *Client) waitLoopOrShutdown() bool {
-	select {
-		case <-time.After(c.config.LoopPeriod):
-			return true
-
-		case signal := <-c.shutdown:
-			log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v | signal: %s", c.config.ID, signal.String())
-			return false
-	}
 }
 
 func (c *Client) Connect() error {
@@ -136,13 +137,8 @@ func (c *Client) WaitBetConfirmation(bet *Bet) {
 // be interrupted gracefully.
 func (c *Client) PlaceBet(bet *Bet) error {
 	bet.Agency = c.config.ID
-	serialized_bet, err := json.Marshal(bet)
 
-	if err != nil {
-		return err
-	}
-
-	msg, err := NewMBPMessage("PLACE_BET", serialized_bet)
+	msg, err := bet.GetMessage()
 
 	if err != nil {
 		return err
