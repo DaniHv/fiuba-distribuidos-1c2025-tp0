@@ -24,6 +24,13 @@ func SBDSerialize(parts []string) []byte {
 }
 
 func SBDDeserialize(data []byte) []string {
+	// Go's Split method will return a slice with a single empty string
+	// even if the input is empty, to avoid that an early return
+	// is used to return an empty slice (length zero).
+	if len(data) == 0 {
+		return make([]string, 0)
+	}
+
 	parts := bytes.Split(data, []byte{0})
 	strings := make([]string, len(parts))
 
