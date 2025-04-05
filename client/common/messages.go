@@ -1,31 +1,31 @@
 package common
 
 import (
-	"encoding/json"
 	"fmt"
+	"strconv"
 )
 
-/// Client->Server messages
-
-type PlaceBetMessage struct {
-	bet *Bet
+type PlaceBetsMessage struct {
+	bets []*Bet
 }
 
-func NewPlaceBetMessage(bet *Bet) *PlaceBetMessage {
-	msg := &PlaceBetMessage{
-		bet: bet,
+func NewPlaceBetMessage(bets []*Bet) *PlaceBetsMessage {
+	msg := &PlaceBetsMessage{
+		bets: bets,
 	}
 
 	return msg
 }
 
-func (m *PlaceBetMessage) GetMessage() (*MBPMessage, error) {
-	data, err := json.Marshal(m.bet)
-	if err != nil {
-		return nil, err
-	}
+func (m *PlaceBetsMessage) GetMessage() (*MBPMessage, error) {
+	var serializedBets [][]string = make([][]string, 0)
 
-	msg, err := NewMBPMessage("PLACE_BET", data)
+	for _, bet := range m.bets {
+		serializedBets = append(serializedBets, []string{bet.FirstName, bet.LastName, bet.Document, bet.BirthDate, bet.Number})
+	}
+	
+	msg, err := NewMBPMessage("PLACE_BETS", SBDSerializeArray(serializedBets))
+
 	if err != nil {
 		return nil, err
 	}
@@ -46,28 +46,7 @@ func NewRegisterMessage(agencyID string) *RegisterMessage {
 }
 
 func (m *RegisterMessage) GetMessage() (*MBPMessage, error) {
-	data, err := json.Marshal(m)
-	if err != nil {
-		return nil, err
-	}
-
-	msg, err := NewMBPMessage("REGISTER", data)
-	if err != nil {
-		return nil, err
-	}
-
-	return msg, nil
-}
-
-type ProcessBetsMessage struct{}
-
-func NewProcessBetsMessage() *ProcessBetsMessage {
-	return &ProcessBetsMessage{}
-}
-
-func (m *ProcessBetsMessage) GetMessage() (*MBPMessage, error) {
-	msg, err := NewMBPMessage("PROCESS_BETS", nil)
-
+	msg, err := NewMBPMessage("REGISTER", SBDSerialize([]string{m.ID}))
 	if err != nil {
 		return nil, err
 	}
@@ -102,11 +81,25 @@ func NewWinnersMessage(msg *MBPMessage) (*WinnersMessage, error) {
 		return nil, fmt.Errorf("unexpected winner message action %v", msg.action)
 	}
 
-	m := &WinnersMessage{}
+	winnersArr, err := SBDDeserializeArray(msg.data, 2)
 
-	json.Unmarshal(msg.data, &m)
+	if err != nil {
+		return nil, err
+	}
 
-	return m, nil
+	winners := make(map[string]int)
+
+	for _, winnerParts := range winnersArr {
+		qty, err := strconv.Atoi(winnerParts[1])
+
+		if err != nil {
+			return nil, fmt.Errorf("unexpected winner message value %v", err)
+		}
+
+		winners[winnerParts[0]] = qty
+	}
+
+	return &WinnersMessage{ Winners: winners }, nil
 }
 
 func (m * WinnersMessage) GetTotal() int {

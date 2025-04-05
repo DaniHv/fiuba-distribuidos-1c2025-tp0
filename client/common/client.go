@@ -80,16 +80,6 @@ func (c *Client) Connect() error {
 // after sending a bet. If the client receives a shutdown signal, the
 // confirmation waiting will be interrupted gracefully.
 func (c *Client) WaitBetsProcessing() error {
-	msg, err := NewProcessBetsMessage().GetMessage()
-
-	if err != nil {
-		return err
-	}
-
-	if err := c.socket.SendMessage(msg); err != nil {
-		return err
-	}
-
 	select {
 		case signal := <-c.shutdown:
 			log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v | signal: %s", c.config.ID, signal.String())
@@ -115,12 +105,8 @@ func (c *Client) WaitBetsProcessing() error {
 	return nil
 }
 
-// PlaceBet sends the bet to the server and waits for the confirmation
-// message. If the client receives a shutdown signal, the waiting will
-// be interrupted gracefully.
-func (c *Client) PlaceBet(bet *Bet) error {
-	msg, err := NewPlaceBetMessage(bet).GetMessage()
-
+func (c* Client) sendBetsBatchMessage(bets []*Bet) error {
+	msg, err := NewPlaceBetMessage(bets).GetMessage()
 	if err != nil {
 		return err
 	}
@@ -139,59 +125,49 @@ func (c *Client) PlaceBets(br *BetsReader) error {
 	total := 0
 
 	for {
-		bets, err := br.ReadN(c.config.BatchAmount)
-		log.Debugf("action: start_bets_batch | client_id: %v | bets: %v", c.config.ID, len(bets))
+		select {
+			case signal := <-c.shutdown:
+				log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v | signal: %s", c.config.ID, signal.String())
+				return nil
 
-		if err != nil {
-			return err
-		}
+			default:
+				bets, err := br.ReadN(c.config.BatchAmount)
+				log.Debugf("action: start_bets_batch | client_id: %v | bets: %v", c.config.ID, len(bets))
 
-		if bets == nil || len(bets) == 0 {
-			break
-		}
+				if err != nil {
+					return err
+				}
 
-		total += len(bets)
+				// End the loop if there are no more bets to read
+				if len(bets) == 0 {
+					log.Infof("action: place_bets | result: success | client_id: %v | cantidad: %v", c.config.ID, total)
 
-		for _, bet := range bets {
-			select {
-				case signal := <-c.shutdown:
-					log.Infof("action: graceful_shutdown | result: in_progress | client_id: %v | signal: %s", c.config.ID, signal.String())
+					msg, err := NewEndBetsMessage().GetMessage()
+					if err != nil {
+						return err
+					}
+					
+					if err := c.socket.SendMessage(msg); err != nil {
+						return err
+					}
+
 					return nil
+				}
 
-				default:
-						log.Debugf("action: place_bets | result: in_progress | client_id: %v | bet: %v", c.config.ID, bet)
+				if err := c.sendBetsBatchMessage(bets); err != nil {
+					log.Debugf("action: place_bets | result: error | client_id: %v | error: %v", c.config.ID, err)
+					return err
+				}
 
-						if err := c.PlaceBet(bet); err != nil {
-							log.Errorf("action: place_bets | result: fail | client_id: %v | error: %v",
-								c.config.ID,
-								err,
-							)
+				if err := c.WaitBetsProcessing(); err != nil {
+					log.Debugf("action: wait_processing | result: error | client_id: %v | error: %v", c.config.ID, err)
+					return err
+				}
 
-							return nil
-						}
-			}
+				total += len(bets)
+				log.Infof("action: place_bets | result: success | client_id: %v | bets batch: %v", c.config.ID, len(bets))
 		}
-
-		if err := c.WaitBetsProcessing(); err != nil {
-			return err
-		}
-
-		log.Infof("action: place_bets | result: success | client_id: %v | bets batch: %v", c.config.ID, len(bets))
 	}
-
-	log.Infof("action: place_bets | result: success | client_id: %v | cantidad: %v", c.config.ID, total)
-
-	msg, err := NewEndBetsMessage().GetMessage()
-
-	if err != nil {
-		return err
-	}
-	
-	if err := c.socket.SendMessage(msg); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (c *Client) WaitForResults() error {

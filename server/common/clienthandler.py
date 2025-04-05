@@ -1,28 +1,21 @@
 import logging
-import json
 import threading
 import queue
 
 from common.protocol import MBPSocket, MBPMessage
 from common.utils import Bet, store_bets
 from common.betsstore import BetsSharedStore
+from common.serialization import SBDSerialization
 
 # Client->Server messages
-class PlaceBetMessage:
+class PlaceBetsMessage:
     def is_of_type(message: 'MBPMessage') -> 'bool':
-        return message.action == 'PLACE_BET'
+        return message.action == 'PLACE_BETS'
+    
+    def get_bets(agency_id: 'str', message: 'MBPMessage') -> 'Bet':
+        bet_parts = SBDSerialization.deserialize_array(message.data, 5)
 
-    def get_bet(agency_id: 'str', message: 'MBPMessage') -> 'Bet':
-        data = json.loads(message.data)
-
-        if not all(key in data for key in ['FirstName', 'LastName', 'Document', 'BirthDate', 'Number']):
-            raise ValueError(f'Invalid JSON Bet format ({message.data})')
-
-        return Bet(agency_id, data['FirstName'], data['LastName'], data['Document'], data['BirthDate'], data['Number'])
-
-class ProcessBetsMessage:
-    def is_of_type(message: 'MBPMessage') -> 'bool':
-        return message.action == 'PROCESS_BETS'
+        return [Bet(agency_id, bet[0], bet[1], bet[2], bet[3], bet[4]) for bet in bet_parts]
 
 class EndBetsMessage:
     def is_of_type(message: 'MBPMessage') -> 'bool':
@@ -33,21 +26,18 @@ class RegisterMessage:
         return message.action == 'REGISTER'
     
     def get_id(message: 'MBPMessage') -> int:
-        data = json.loads(message.data)
+        parts = SBDSerialization.deserialize(message.data, 1)
 
-        if not 'ID' in data:
-            raise ValueError(f'Invalid JSON Register format ({message.data})')
-
-        return data['ID']
+        return parts[0]
 
 # Server->Client messages
 class BetsProcessedMessage:
     def create_message(success: 'bool') -> 'MBPMessage':
-        return MBPMessage('BETS_PROCESSED', bytes(json.dumps({'result': 'success' if success else 'fail'}), 'utf-8'))
+        return MBPMessage('BETS_PROCESSED', SBDSerialization.serialize(['success' if success else 'fail']))
 
 class BetsResultsMessage:
     def create_message(winners: 'dict') -> 'MBPMessage':
-        return MBPMessage('WINNERS', bytes(json.dumps({ "Winners": winners }), 'utf-8'))
+        return MBPMessage('WINNERS', SBDSerialization.serialize_array([[k, str(v)] for k, v in winners.items()]))
 
 # Client handler
 class ClientHandler(threading.Thread):
@@ -87,9 +77,9 @@ class ClientHandler(threading.Thread):
         try:
             self._socket.send_message(BetsResultsMessage.create_message(winners))
 
-            logging.info(f'action: send_results | result: success | cantidad: {sum(winners.values())}')
+            logging.info(f'action: send_results | result: success | client: {self.id} | cantidad: {sum(winners.values())}')
         except Exception as e:
-            logging.error(f'action: send_results | result: fail | error: {e}')
+            logging.error(f'action: send_results | result: fail | client: {self.id} | error: {e}')
 
     def send_results(self, winners: 'dict'):
         self._results_queue.put(winners)
@@ -97,31 +87,22 @@ class ClientHandler(threading.Thread):
     # Request and process a batch of bets from the client, returning True if more
     # batches are expected or False if the client has finished.
     def _request_bets_batch(self) -> 'bool':
-        bets = []
-
         try:
             # Obtain batch bets from the client
-            while True:
-                message = self._socket.receive_message()
+            message = self._socket.receive_message()
 
-                # EndBetsMessage is expected to be preceded by a ProcessBetsMessage,
-                # for that reason the loop is stopped as no bets are expected to be
-                # pending for processing.
-                if EndBetsMessage.is_of_type(message):
-                    logging.debug(f'action: end_of_bets | result: in_progress')
-                    return False
+            # EndBetsMessage is expected to be preceded by a ProcessBetsMessage,
+            # for that reason the loop is stopped as no bets are expected to be
+            # pending for processing.
+            if EndBetsMessage.is_of_type(message):
+                logging.debug(f'action: end_of_bets | result: in_progress')
+                return False
 
-                if ProcessBetsMessage.is_of_type(message):
-                    logging.debug(f'action: process_bets | result: in_progress')
-                    break
-
-                if not PlaceBetMessage.is_of_type(message):
-                    raise Exception(f'Unexpected action received: {message.action}')
-
-                logging.debug(f'action: single_apuesta_recibida | result: in_progress | data: {message.data}')
-                bets.append(PlaceBetMessage.get_bet(self.id, message))
+            if not PlaceBetsMessage.is_of_type(message):
+                raise Exception(f'Unexpected action received: {message.action}')
 
             # Process the batch of bets (store)
+            bets = PlaceBetsMessage.get_bets(self.id, message)
             store_bets(bets)
             logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
 
